@@ -33,7 +33,26 @@ function qrMatrix(value) {
   return modules;
 }
 function qrSvg(value) {
-  const matrix=qrMatrix(value),size=matrix.length+8;
-  let path='';matrix.forEach((row,y)=>row.forEach((on,x)=>{if(on)path+='M'+(x+4)+','+(y+4)+'h1v1h-1z';}));
-  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+size+' '+size+'" role="img" aria-label="QR-код для подключения к комнате" shape-rendering="crispEdges"><rect width="'+size+'" height="'+size+'" fill="white"/><path d="'+path+'" fill="black"/></svg>';
+  const matrix=qrMatrix(value),size=matrix.length,pad=4,total=size+pad*2;
+  const isFinder=(x,y)=>(x<=7&&y<=7)||(x>=size-8&&y<=7)||(x<=7&&y>=size-8);
+  let pills='';
+  for(let y=0;y<size;y++){
+    let start=-1;
+    for(let x=0;x<=size;x++){
+      const on=x<size&&matrix[y][x]&&!isFinder(x,y);
+      if(on&&start===-1)start=x;
+      else if(!on&&start!==-1){
+        const len=x-start,px=start+pad,py=y+pad,rx=len===1?0.42:0.48;
+        pills+='<rect x="'+px+'" y="'+py+'" width="'+len+'" height="1" rx="'+rx+'"/>';
+        start=-1;
+      }
+    }
+  }
+  let eyes='';
+  for(const [fx,fy] of [[0,0],[size-7,0],[0,size-7]]){
+    const x=fx+pad,y=fy+pad;
+    eyes+='<path fill-rule="evenodd" d="M'+(x+0.4)+','+y+'h6.2a0.4,0.4 0 0 1 0.4,0.4v6.2a0.4,0.4 0 0 1 -0.4,0.4h-6.2a0.4,0.4 0 0 1 -0.4,-0.4v-6.2a0.4,0.4 0 0 1 0.4,-0.4zM'+(x+1)+','+(y+1)+'h5v5h-5z"/>'+
+          '<rect x="'+(x+2)+'" y="'+(y+2)+'" width="3" height="3" rx="0.4"/>';
+  }
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+total+' '+total+'" role="img" aria-label="QR-код для подключения к комнате"><rect width="'+total+'" height="'+total+'" rx="3.5" fill="#f7fcee"/><g fill="#101420">'+pills+eyes+'</g></svg>';
 }
