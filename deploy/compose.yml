@@ -1,0 +1,21 @@
+name: quiz-word-cloud
+services:
+  app:
+    image: quiz-word-cloud:${RELEASE:?RELEASE is required}
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:18082:3000"
+    volumes:
+      - /opt/quiz-word-cloud/data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

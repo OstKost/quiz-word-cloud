@@ -1,0 +1,59 @@
+name: CI / CD
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: quiz-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - run: npm test
+      - run: npm run build
+      - run: node scripts/validate-artifact.mjs
+      - name: Validate deployment files
+        run: |
+          bash -n deploy/deploy.sh deploy/ssh-command.sh
+          RELEASE=${GITHUB_SHA} docker compose -f deploy/compose.yml config -q
+      - name: Build and check production container
+        run: |
+          docker build -t quiz-ci .
+          mkdir -p /tmp/quiz-data
+          sudo chown 1000:1000 /tmp/quiz-data
+          docker run -d --name quiz-ci --read-only --tmpfs /tmp -v /tmp/quiz-data:/data -p 127.0.0.1:3000:3000 quiz-ci
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3000/healthz; then exit 0; fi
+            sleep 2
+          done
+          docker logs quiz-ci
+          exit 1
+  deploy:
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Deploy over restricted SSH
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/quiz_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/quiz_deploy ~/.ssh/known_hosts
+          git archive --format=tar.gz HEAD | ssh -i ~/.ssh/quiz_deploy -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 quiz-deploy@176.53.174.118 "deploy $GITHUB_SHA"
+      - name: Verify public HTTPS
+        run: curl --fail --silent --show-error --retry 5 --retry-delay 5 https://quiz.ost.wang/healthz

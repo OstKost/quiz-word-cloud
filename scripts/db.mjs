@@ -1,0 +1,3 @@
+import {DatabaseSync} from 'node:sqlite';
+import {readFileSync} from 'node:fs';
+export function database(path=':memory:'){const sqlite=new DatabaseSync(path);sqlite.exec('PRAGMA foreign_keys=ON');if(!sqlite.prepare("SELECT name FROM sqlite_master WHERE name='rooms'").get())sqlite.exec(readFileSync('drizzle/0000_rooms.sql','utf8'));return {prepare(sql){const stmt=sqlite.prepare(sql);let args=[];return {bind(...values){args=values;return this},async first(){return stmt.get(...args)||null},async all(){return {results:stmt.all(...args)}},async run(){const r=stmt.run(...args);return {meta:{changes:Number(r.changes)}}}}},close(){sqlite.close()}}}

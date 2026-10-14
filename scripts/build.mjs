@@ -1,0 +1,3 @@
+import {readFile,mkdir,writeFile,cp,rm} from 'node:fs/promises';
+await rm('dist',{recursive:true,force:true});await mkdir('dist/server',{recursive:true});await mkdir('dist/.openai',{recursive:true});
+const source=await readFile('worker/index.js','utf8'),html=(await readFile('public/index.html','utf8')).replace('// __QR_CODE__',await readFile('public/qr.js','utf8')).replace('// __CLOUD_CODE__',await readFile('public/cloud.js','utf8'));await writeFile('dist/server/index.js',source.replace("'__APP_HTML__'",JSON.stringify(html)));await cp('.openai/hosting.json','dist/.openai/hosting.json');await cp('drizzle','dist/drizzle',{recursive:true});console.log('Built Worker, UI and migrations');
