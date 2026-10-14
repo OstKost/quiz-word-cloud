@@ -76,3 +76,19 @@ test('waiting screen configuration is located in host settings panel and not in 
  assert.ok(html.includes('name="title"'));
  assert.ok(html.includes('name="text"'));
 });
+
+test('completion notice only appears for a live round ending; badge persists until waiting or another question',()=>{
+ const start=script.indexOf('function updateCompletion('),end=script.indexOf('function toast(',start);
+ const badge={hidden:true},notice={hidden:true};let expire;
+ const update=new Function('$','setTimeout','clearTimeout',script.slice(start,end)+'return updateCompletion;')(selector=>selector==='#completion-badge'?badge:notice,fn=>{expire=fn;return 1;},()=>{});
+ const open={round:1,status:'open',view:'question'},stopped={round:1,status:'stopped',view:'results'};
+ update(null,stopped);assert.equal(notice.hidden,true);assert.equal(badge.hidden,false);
+ for(const status of ['open','paused']){
+  update({...open,status},stopped);assert.equal(notice.hidden,false);assert.equal(badge.hidden,false);
+  expire();assert.equal(notice.hidden,true);
+  update(stopped,{...stopped,revision:10});assert.equal(notice.hidden,true);assert.equal(badge.hidden,false);
+ }
+ update(open,stopped);update(stopped,{...stopped,view:'waiting'});assert.equal(notice.hidden,true);assert.equal(badge.hidden,true);
+ update(open,stopped);update(stopped,{round:2,status:'ready',view:'question'});assert.equal(notice.hidden,true);assert.equal(badge.hidden,true);
+ update(open,{round:2,status:'stopped',view:'results'});assert.equal(notice.hidden,true);assert.equal(badge.hidden,false);
+});
