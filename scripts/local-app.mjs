@@ -1,12 +1,14 @@
 import {readFile} from 'node:fs/promises';
 import worker from '../worker/index.js';
-export function createHandler(DB) {
+export function createHandler(DB,{publicOrigin}={}) {
+const canonicalOrigin=publicOrigin?new URL(publicOrigin).origin:null;
 const listeners=new Map();
 async function snapshot(url){return worker.fetch(new Request(url),{DB});}
 async function broadcast(code){for(const client of listeners.get(code)||[]){try{const response=await snapshot(client.url);if(response.ok&&!client.res.destroyed)client.res.write('data: '+await response.text()+'\n\n');}catch(e){console.error(e);}}}
 return async(req,res)=>{
   try{
-    const url=new URL(req.url,'http://'+req.headers.host);
+    let url=new URL(req.url,'http://'+req.headers.host);
+    if(canonicalOrigin)url=new URL(url.pathname+url.search,canonicalOrigin);
     if(req.method==='GET'&&url.pathname==='/healthz'){
       await DB.prepare('SELECT 1 AS ok').first();
       res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});

@@ -4,6 +4,8 @@ services:
     image: quiz-word-cloud:${RELEASE:?RELEASE is required}
     restart: unless-stopped
     init: true
+    environment:
+      APP_ORIGIN: https://quiz.ost.wang
     ports:
       - "127.0.0.1:18082:3000"
     volumes:

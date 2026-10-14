@@ -32,7 +32,7 @@ node scripts/validate-artifact.mjs
 
 ## Production и CI/CD
 
-Адрес: https://quiz.ost.wang. Сервер: `176.53.174.118`, OpenResty проксирует на `127.0.0.1:18082`. Приложение работает в Docker на Node.js 24, SQLite хранится вне контейнера в `/opt/quiz-word-cloud/data/quiz.sqlite`.
+Адрес: https://quiz.ost.wang. Сервер: `176.53.174.118`, OpenResty проксирует на `127.0.0.1:18082`. Приложение работает в Docker на Node.js 24, SQLite хранится вне контейнера в `/opt/quiz-word-cloud/data/quiz.sqlite`. В Compose задан `APP_ORIGIN=https://quiz.ost.wang`: этот адрес используется для проверки Origin за HTTPS-прокси. Для другого домена измените значение; при локальном запуске без этой переменной адрес определяется по Host запроса.
 
 GitHub Actions (`.github/workflows/ci-cd.yml`) проверяет каждый PR: тесты, сборку Worker, проверку артефакта, конфигурацию деплоя и запуск production-контейнера. Push в `main` после успешных проверок автоматически разворачивает эту версию. Для повторного деплоя используйте Run workflow на `main`. Node.js 24 соответствует [документации SQLite](https://nodejs.org/download/release/latest-v24.x/docs/api/sqlite.html); настройка Actions использует [setup-node](https://github.com/actions/setup-node).
 

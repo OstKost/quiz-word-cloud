@@ -12,6 +12,33 @@ class Response extends EventEmitter {
   end(value){if(value)this.write(value);}
 }
 function request(url,data){return {url,method:data?'POST':'GET',headers:{host:'localhost:3000'},async *[Symbol.asyncIterator](){if(data)yield Buffer.from(JSON.stringify(data));}};}
+test('HTTPS proxy requests accept the public origin and reject other origins',async()=>{
+  const DB=database(),handler=createHandler(DB,{publicOrigin:'https://quiz.ost.wang'});
+  async function call(path,data,origin,extra={}){
+    const req=request(path,data);req.headers={host:'quiz.ost.wang',origin,...extra};
+    const res=new Response();await handler(req,res);
+    return {status:res.status,data:JSON.parse(res.chunks.join(''))};
+  }
+  try{
+    const created=await call('/api/rooms',{question:'За HTTPS-прокси'},'https://quiz.ost.wang');
+    assert.equal(created.status,201);
+    const {code,secret}=created.data;
+    assert.equal((await call('/api/rooms/'+code+'/control',{action:'start'},'https://quiz.ost.wang',{authorization:'Bearer '+secret})).status,200);
+    assert.equal((await call('/api/rooms/'+code+'/answer',{participant:randomUUID(),word:'Работает'},'https://quiz.ost.wang')).status,200);
+    for(const origin of ['https://evil.example','http://quiz.ost.wang']){
+      assert.equal((await call('/api/rooms',{question:'Отклонить'},origin,{'x-forwarded-proto':'https','x-forwarded-host':'evil.example'})).status,403);
+    }
+    assert.equal((await call('https://evil.example/api/rooms',{question:'Отклонить'},'https://evil.example')).status,403);
+  }finally{DB.close();}
+});
+test('LAN HTTP requests use the request host when no public origin is configured',async()=>{
+  const DB=database(),handler=createHandler(DB);
+  try{
+    const req=request('/api/rooms',{question:'Локальная сеть'});
+    req.headers={host:'192.168.1.10:3000',origin:'http://192.168.1.10:3000'};
+    const res=new Response();await handler(req,res);assert.equal(res.status,201);
+  }finally{DB.close();}
+});
 test('local server pushes accepted answers to presenter immediately',async()=>{
   const DB=database(),handler=createHandler(DB);let events;
   try{
