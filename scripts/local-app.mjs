@@ -8,7 +8,7 @@ async function broadcast(code){for(const client of listeners.get(code)||[]){try{
 return async(req,res)=>{
   try{
     let url=new URL(req.url,'http://'+req.headers.host);
-    if(canonicalOrigin)url=new URL(url.pathname+url.search,canonicalOrigin);
+    if(canonicalOrigin)url=new URL(canonicalOrigin+url.pathname+url.search);
     if(req.method==='GET'&&url.pathname==='/healthz'){
       await DB.prepare('SELECT 1 AS ok').first();
       res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});
