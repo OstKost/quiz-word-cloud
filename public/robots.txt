@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /*?room=
+Sitemap: https://quiz.ost.wang/sitemap.xml

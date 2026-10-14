@@ -1,5 +1,5 @@
 import {readFile} from 'node:fs/promises';
-import worker from '../worker/index.js';
+import worker, {publicAssets,pageResponse} from '../worker/index.js';
 export function createHandler(DB,{publicOrigin}={}) {
 const canonicalOrigin=publicOrigin?new URL(publicOrigin).origin:null;
 const listeners=new Map();
@@ -25,13 +25,14 @@ return async(req,res)=>{
       res.on('close',()=>{clearInterval(heartbeat);listeners.get(events[1])?.delete(client);if(!listeners.get(events[1])?.size)listeners.delete(events[1]);});return;
     }
     const chunks=[];let length=0;
-    for await(const x of req){length+=x.length;if(length>4096){res.writeHead(413);res.end('Request too large');return;}chunks.push(x);}
+    for await(const x of req){length+=x.length;if(length>65536){res.writeHead(413);res.end('Request too large');return;}chunks.push(x);}
     const request=new Request(url,{method:req.method,headers:req.headers,...(['GET','HEAD'].includes(req.method)?{}:{body:Buffer.concat(chunks)})});
     let response;
-    if(!url.pathname.startsWith('/api/'))response=new Response((await readFile('public/index.html','utf8')).replace('// __QR_CODE__',await readFile('public/qr.js','utf8')).replace('// __CLOUD_CODE__',await readFile('public/cloud.js','utf8')),{headers:{'content-type':'text/html;charset=utf-8','cache-control':'no-store'}});
+    if(publicAssets[url.pathname])response=new Response(await readFile('public'+url.pathname),{headers:{'content-type':publicAssets[url.pathname],'cache-control':'public,max-age=3600','x-content-type-options':'nosniff'}});
+    else if(!url.pathname.startsWith('/api/'))response=url.pathname==='/'?pageResponse((await readFile('public/index.html','utf8')).replace('// __QR_CODE__',await readFile('public/qr.js','utf8')).replace('// __CLOUD_CODE__',await readFile('public/cloud.js','utf8')),url):new Response('Not found',{status:404});
     else response=await worker.fetch(request,{DB});
     res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));
-    const mutation=url.pathname.match(/^\/api\/rooms\/(\d{6})\/(answer|control)$/);
+    const mutation=url.pathname.match(/^\/api\/rooms\/(\d{6})\/(answer|control|analysis)$/);
     if(mutation&&req.method==='POST'&&response.ok)await broadcast(mutation[1]);
   }catch(e){console.error(e);if(!res.headersSent)res.writeHead(500);res.end('Server error');}
 };

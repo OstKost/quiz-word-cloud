@@ -5,3 +5,5 @@ CREATE TABLE answers (id INTEGER PRIMARY KEY AUTOINCREMENT, room TEXT NOT NULL R
 CREATE INDEX answers_room ON answers(room,round,participant);
 --> statement-breakpoint
 CREATE TABLE hidden (room TEXT NOT NULL, round INTEGER NOT NULL, word TEXT NOT NULL, PRIMARY KEY(room,round,word));
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS analyses (room TEXT NOT NULL REFERENCES rooms(code), round INTEGER NOT NULL, data TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY(room,round));
