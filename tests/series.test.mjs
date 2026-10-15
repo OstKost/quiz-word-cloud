@@ -86,9 +86,9 @@ test('legacy SQLite and D1 SQL migration retain live room, old results and metad
   DB=database(path);
   const response=await worker.fetch(new Request('http://localhost/api/rooms/123456'),{DB});const state=await response.json();assert.equal(state.question,'Текущий вопрос');assert.equal(state.status,'paused');assert.equal(state.remaining,45000);
   const qres=await worker.fetch(new Request('http://localhost/api/rooms/123456/questions',{headers:{authorization:'Bearer secret'}}),{DB});const queue=await qres.json();assert.equal(queue.questions.find(q=>q.round===1).question,'Раунд 1');
-  DB.close();DB=database(path);assert.equal((await DB.prepare('SELECT COUNT(*) AS n FROM app_migrations').first()).n,2);assert.equal((await DB.prepare('SELECT COUNT(*) AS n FROM answers').first()).n,1);
+  DB.close();DB=database(path);assert.equal((await DB.prepare('SELECT COUNT(*) AS n FROM app_migrations').first()).n,3);assert.equal((await DB.prepare('SELECT COUNT(*) AS n FROM answers').first()).n,1);
   // D1 applies the same SQL files without the local migration runner.
-  const d1=new DatabaseSync(':memory:');d1.exec(readFileSync('drizzle/0000_rooms.sql','utf8'));d1.exec(readFileSync('drizzle/0001_series.sql','utf8'));assert.ok(d1.prepare("SELECT name FROM sqlite_master WHERE name='room_series'").get());d1.close();
+  const d1=new DatabaseSync(':memory:');d1.exec(readFileSync('drizzle/0000_rooms.sql','utf8'));d1.exec(readFileSync('drizzle/0001_series.sql','utf8'));d1.exec(readFileSync('drizzle/0002_cleanup.sql','utf8'));assert.ok(d1.prepare("SELECT name FROM sqlite_master WHERE name='room_series'").get());d1.close();
  }finally{DB?.close();rmSync(dir,{recursive:true,force:true});}
 });
 

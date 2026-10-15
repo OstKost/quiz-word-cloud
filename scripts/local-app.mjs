@@ -1,11 +1,13 @@
 import {readFile} from 'node:fs/promises';
-import worker, {publicAssets,pageResponse} from '../worker/index.js';
+import worker, {publicAssets,pageResponse,holdRoom,touchRoom} from '../worker/index.js';
 export function createHandler(DB,{publicOrigin}={}) {
 const canonicalOrigin=publicOrigin?new URL(publicOrigin).origin:null;
 const listeners=new Map();
-async function snapshot(url){return worker.fetch(new Request(url),{DB});}
+async function snapshot(url){return worker.fetch(new Request(url),{DB,trackActivity:false});}
 async function broadcast(code){for(const client of listeners.get(code)||[]){try{const response=await snapshot(client.url);if(response.ok&&!client.res.destroyed)client.res.write('data: '+await response.text()+'\n\n');}catch(e){console.error(e);}}}
 return async(req,res)=>{
+  const requestCode=req.url.match(/^\/api\/rooms\/(\d{6})(?:\/|[?]|$)/)?.[1];
+  const release=requestCode?holdRoom(DB,requestCode):()=>{};
   try{
     let url=new URL(req.url,'http://'+req.headers.host);
     if(canonicalOrigin)url=new URL(canonicalOrigin+url.pathname+url.search);
@@ -20,9 +22,12 @@ return async(req,res)=>{
       if(!initial.ok){res.writeHead(initial.status,{'content-type':'application/json'});res.end(await initial.text());return;}
       res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache','connection':'keep-alive','x-accel-buffering':'no'});
       res.write('data: '+await initial.text()+'\n\n');
+      await touchRoom(DB,events[1]);
+      const releaseStream=holdRoom(DB,events[1]);
       const client={res,url};if(!listeners.has(events[1]))listeners.set(events[1],new Set());listeners.get(events[1]).add(client);
       const heartbeat=setInterval(()=>res.write(': keepalive\n\n'),15000);
-      res.on('close',()=>{clearInterval(heartbeat);listeners.get(events[1])?.delete(client);if(!listeners.get(events[1])?.size)listeners.delete(events[1]);});return;
+      const activityTimer=setInterval(()=>{if(!res.destroyed)touchRoom(DB,events[1]).catch(console.error);},60000);
+      res.on('close',()=>{releaseStream();clearInterval(activityTimer);clearInterval(heartbeat);listeners.get(events[1])?.delete(client);if(!listeners.get(events[1])?.size)listeners.delete(events[1]);});return;
     }
     const chunks=[];let length=0;
     for await(const x of req){length+=x.length;if(length>65536){res.writeHead(413);res.end('Request too large');return;}chunks.push(x);}
@@ -34,6 +39,6 @@ return async(req,res)=>{
     res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));
     const mutation=url.pathname.match(/^\/api\/rooms\/(\d{6})\/(answer|control|analysis)$/);
     if(mutation&&req.method==='POST'&&response.ok)await broadcast(mutation[1]);
-  }catch(e){console.error(e);if(!res.headersSent)res.writeHead(500);res.end('Server error');}
+  }catch(e){console.error(e);if(!res.headersSent)res.writeHead(500);res.end('Server error');}finally{release();}
 };
 }

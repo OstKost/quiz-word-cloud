@@ -90,7 +90,7 @@ async function controlSeries(db,r,b){
  saveCurrent();await commit(db,r,series,current);
 }
 async function snapshot(db,r,p){const words=await db.prepare('SELECT a.word,COUNT(DISTINCT a.participant) AS count FROM answers a WHERE a.room=? AND a.round=? AND NOT EXISTS(SELECT 1 FROM hidden h WHERE h.room=a.room AND h.round=a.round AND h.word=a.word) GROUP BY a.word ORDER BY count DESC,a.word LIMIT 200').bind(r.code,r.round).all();const totals=await db.prepare('SELECT COUNT(*) AS answers,COUNT(DISTINCT participant) AS people FROM answers WHERE room=? AND round=?').bind(r.code,r.round).first();const mine=p?await db.prepare('SELECT COUNT(*) AS n FROM answers WHERE room=? AND round=? AND participant=?').bind(r.code,r.round,p).first():{n:0};let analysis=null;try{const a=await db.prepare('SELECT data FROM analyses WHERE room=? AND round=?').bind(r.code,r.round).first();if(a?.data)analysis=JSON.parse(a.data);}catch{}const series=JSON.parse(r.series_data);const waiting=series.view==='waiting';return {resetToken:series.resetToken||null,view:waiting?'waiting':r.status==='stopped'?'results':series.view,tab:series.tab,theme:series.theme||'',waitingTitle:series.title,waitingText:series.text,revision:r.revision,code:r.code,question:waiting?'':r.question,maxAnswers:r.max_answers,duration:r.duration,filter:!!r.filter,status:r.status,deadline:r.deadline,remaining:r.remaining,round:r.round,words:waiting?[]:words.results,...(waiting?{answers:0,people:0}:totals),used:waiting?0:mine.n,analysis:waiting?null:analysis,now:Date.now()};}
-export default {async fetch(req,env){try{const url=new URL(req.url);if(publicAssets[url.pathname]&&ASSETS[url.pathname])return new Response(Uint8Array.from(atob(ASSETS[url.pathname]),c=>c.charCodeAt(0)),{headers:{'content-type':publicAssets[url.pathname],'cache-control':'public,max-age=3600','x-content-type-options':'nosniff'}});if(!url.pathname.startsWith('/api/'))return url.pathname==='/'?pageResponse(HTML,url):new Response('Not found',{status:404});if(req.method==='POST'&&req.headers.get('origin')&&req.headers.get('origin')!==url.origin)fail('Запрос с другого сайта запрещён',403);const db=env.DB;if(!db)fail('База данных недоступна',503);
+const apiWorker={async fetch(req,env){try{const url=new URL(req.url);if(publicAssets[url.pathname]&&ASSETS[url.pathname])return new Response(Uint8Array.from(atob(ASSETS[url.pathname]),c=>c.charCodeAt(0)),{headers:{'content-type':publicAssets[url.pathname],'cache-control':'public,max-age=3600','x-content-type-options':'nosniff'}});if(!url.pathname.startsWith('/api/'))return url.pathname==='/'?pageResponse(HTML,url):new Response('Not found',{status:404});if(req.method==='POST'&&req.headers.get('origin')&&req.headers.get('origin')!==url.origin)fail('Запрос с другого сайта запрещён',403);const db=env.DB;if(!db)fail('База данных недоступна',503);
 if(url.pathname==='/api/rooms'&&req.method==='POST'){
  const b=await body(req),{question,maxAnswers,duration}=settings(b),secret=crypto.randomUUID(),theme=roomTheme(b.theme);
  for(let i=0;i<5;i++){
@@ -98,7 +98,7 @@ if(url.pathname==='/api/rooms'&&req.method==='POST'){
   const initial={theme,defaults:{maxAnswers,duration},questions:[{id:crypto.randomUUID(),round:1,question,maxAnswers,duration,status:'draft',shown:false,remaining:duration*1000}],nextRound:2,view:'waiting',tab:'cloud',title:'Скоро начнём',text:'Подключайтесь к комнате — ведущий скоро покажет вопрос'};
   try{
    await db.batch([
-    db.prepare("INSERT INTO rooms(code,secret,question,max_answers,duration,filter,status,remaining) VALUES(?,?,?,?,?,?,'ready',?)").bind(code,secret,question,maxAnswers,duration,b.filter===false?0:1,duration*1000),
+    db.prepare("INSERT INTO rooms(code,secret,question,max_answers,duration,filter,status,remaining,last_accessed) VALUES(?,?,?,?,?,?,'ready',?,?)").bind(code,secret,question,maxAnswers,duration,b.filter===false?0:1,duration*1000,Date.now()),
     db.prepare('INSERT INTO room_series(room,data) VALUES(?,?)').bind(code,JSON.stringify(initial))
    ]);return json({code,secret},201);
   }catch(e){if(i===4||!String(e.message).includes('UNIQUE'))throw e;}
@@ -114,3 +114,24 @@ const b=await body(req);if(match[2]==='answer'&&req.method==='POST'){if(!/^[a-zA
 const out=await db.prepare(`INSERT INTO answers(room,round,participant,word,created) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM rooms WHERE code=? AND round=? AND status='open' AND (deadline IS NULL OR deadline>?)) AND (SELECT COUNT(*) FROM answers WHERE room=? AND round=? AND participant=?)<? AND NOT EXISTS(SELECT 1 FROM answers WHERE room=? AND round=? AND participant=? AND word=?) AND NOT EXISTS(SELECT 1 FROM hidden WHERE room=? AND round=? AND word=?) AND (SELECT COALESCE(MAX(created),0) FROM answers WHERE room=? AND round=? AND participant=?)<?`).bind(r.code,r.round,b.participant,word,Date.now(),r.code,r.round,Date.now(),r.code,r.round,b.participant,r.max_answers,r.code,r.round,b.participant,word,r.code,r.round,word,r.code,r.round,b.participant,Date.now()-1000).run();if(!out.meta.changes)fail('Ответ уже отправлен, лимит исчерпан или отправка слишком частая',409);return json(await snapshot(db,r,b.participant));}
 if(match[2]==='control'&&req.method==='POST'){if(req.headers.get('authorization')!==`Bearer ${r.secret}`)fail('Нет доступа к управлению',403);try{await controlSeries(db,r,b);}catch(e){if(e.status===409)return json({error:e.message,state:await snapshot(db,await room(db,r.code))},409);throw e;}return json(await snapshot(db,await room(db,r.code)));}fail('Метод не поддерживается',405);
 }catch(e){if(!e.status)console.error(e);return json({error:e.status?e.message:'Ошибка сервера. Попробуйте ещё раз.'},e.status||500);}}};
+
+// Shared by HTTP requests, SSE connections and the Node cleanup scheduler.
+const activity=new WeakMap();
+export function holdRoom(db,code){
+ let rooms=activity.get(db);if(!rooms)activity.set(db,rooms=new Map());
+ rooms.set(code,(rooms.get(code)||0)+1);let released=false;
+ return ()=>{if(released)return;released=true;const n=rooms.get(code)-1;if(n)rooms.set(code,n);else rooms.delete(code);};
+}
+export function roomIsActive(db,code){return !!activity.get(db)?.has(code);}
+export async function touchRoom(db,code,now=Date.now()){
+ await db.prepare('UPDATE rooms SET last_accessed=MAX(COALESCE(last_accessed,0),?) WHERE code=?').bind(now,code).run();
+}
+export default {async fetch(req,env){
+ const code=new URL(req.url).pathname.match(/^\/api\/rooms\/(\d{6})(?:\/|$)/)?.[1];
+ const release=code&&env.DB?holdRoom(env.DB,code):()=>{};
+ try{
+  const response=await apiWorker.fetch(req,env);
+  if(code&&env.DB&&response.ok&&env.trackActivity!==false)await touchRoom(env.DB,code);
+  return response;
+ }finally{release();}
+}};

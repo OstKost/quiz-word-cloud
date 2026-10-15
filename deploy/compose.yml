@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     init: true
     environment:
+      ROOM_CLEANUP_INTERVAL_DAYS: ${ROOM_CLEANUP_INTERVAL_DAYS:-7}
+      ROOM_INACTIVITY_DAYS: ${ROOM_INACTIVITY_DAYS:-14}
       APP_ORIGIN: https://quiz.ost.wang
     ports:
       - "127.0.0.1:18082:3000"
